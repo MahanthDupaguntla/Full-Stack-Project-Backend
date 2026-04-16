@@ -19,7 +19,6 @@ public class AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
-    private final OtpService otpService;
 
     public AuthResponse register(RegisterRequest req) {
         if (userRepository.existsByEmail(req.getEmail())) {
@@ -32,26 +31,12 @@ public class AuthService {
                 .password(passwordEncoder.encode(req.getPassword()))
                 .role(req.getRole() != null ? req.getRole() : UserRole.VISITOR)
                 .avatar("https://api.dicebear.com/7.x/avataaars/svg?seed=" + req.getName())
+                .isVerified(true) // Automatically verify the user
                 .build();
 
         userRepository.save(user);
-        otpService.generateAndSendOtp(user.getEmail());
         
-        // Return without a token (or dummy token) to signify OTP is needed
-        return buildResponse("PENDING_VERIFICATION", user);
-    }
-
-    public AuthResponse verifyOtp(String email, String otp) {
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("User not found"));
-
-        if (!otpService.verifyOtp(email, otp)) {
-            throw new RuntimeException("Invalid or expired OTP");
-        }
-
-        user.setVerified(true);
-        userRepository.save(user);
-
+        // Instantly generate token and log them in
         String token = jwtUtil.generateToken(user.getEmail(), user.getRole().name());
         return buildResponse(token, user);
     }
@@ -64,11 +49,10 @@ public class AuthService {
             throw new RuntimeException("Invalid email or password");
         }
 
-        if (!user.isVerified()) {
-            otpService.generateAndSendOtp(user.getEmail());
-            return buildResponse("PENDING_VERIFICATION", user);
-        }
+        user.setVerified(true);
+        userRepository.save(user);
 
+        // Instantly generate token and log them in
         String token = jwtUtil.generateToken(user.getEmail(), user.getRole().name());
         return buildResponse(token, user);
     }
